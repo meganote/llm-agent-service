@@ -12,6 +12,7 @@ class NacosSettings(BaseSettings):
     service_name: str = Field(default="fastapi-service", env="SERVICE_NAME")
     service_port: int = Field(default=8000, env="SERVICE_PORT")
     service_ip: str = Field(default="127.0.0.1", env="SERVICE_IP")
+    heartbeat_interval: int = Field(default=5, env="HEARBEAT_INTERVAL")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -20,4 +21,4 @@ class NacosSettings(BaseSettings):
     )
 
 
-nacos_ettings = NacosSettings()
+nacos_settings = NacosSettings()

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import socket
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import nacos
 import psutil
@@ -15,11 +15,22 @@ logger = logging.getLogger(__name__)
 class NacosManager:
     def __init__(self):
         self._client = nacos.NacosClient(
-            server_addresses=nacos_settings.nacos_server,
+            server_addresses=nacos_settings.server,
             namespace=nacos_settings.namespace,
             username=nacos_settings.username,
-            password=nacos_settings.password
+            password=nacos_settings.password,
         )
+        self.heartbeat_task: Optional[asyncio.Task] = None
+        self._registred = False
+        self._current_config = {}
+
+    @property
+    def current_config(self):
+        return self._current_config
+
+    @property
+    def service_ip(self) -> str:
+        return nacos_settings.service_ip or self.get_local_ip()
 
     def get_client(self) -> nacos.NacosClient:
         return self._client
@@ -30,8 +41,7 @@ class NacosManager:
     def load_initial_config(self) -> Dict[str, Any]:
         try:
             config_str = self._client.get_config(
-                data_id=nacos_settings.data_id,
-                group=nacos_settings.group
+                data_id=nacos_settings.data_id, group=nacos_settings.group
             )
             self._current_config = json.loads(config_str)
             logger.info("Successfully loaded config from Nacos")
@@ -43,65 +53,102 @@ class NacosManager:
         return self._current_config
 
     @staticmethod
-    def get_local_ip():
+    def get_local_ip() -> str:
         try:
             for interface, addrs in psutil.net_if_addrs().items():
                 for addr in addrs:
-                    if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+                    if addr.family == socket.AF_INET and not addr.address.startswith(
+                        "127."
+                    ):
                         return addr.address
             raise Exception(-403, "no valid non-loopback IPv4 interface found")
         except socket.gaierror as err:
-            raise Exception(-403,
-                            f"failed to query local IP address, error: {str(err)}")
+            raise Exception(
+                -403, f"failed to query local IP address, error: {str(err)}"
+            )
 
-    def register_service(self):
+    async def register(self):
+        if self._registred:
+            return
+
+        self.load_initial_config()
+        logger.info(f"Config loaded: {self._current_config}")
+
         try:
             self._client.add_naming_instance(
                 service_name=nacos_settings.service_name,
-                ip=nacos_settings.service_ip or self.get_local_ip(),
+                ip=self.service_ip,
                 port=nacos_settings.service_port,
-                cluster_name="DEFAULT"
+                cluster_name="DEFAULT",
+                metadata={
+                    "heartbeat_interval": str(nacos_settings.heartbeat_interval),
+                },
             )
-            logger.info("Service registered successfully")
-        except Exception as e:
-            logger.error(f"Service registration failed: {str(e)}")
+            self._registred = True
+            self.heartbeat_task = asyncio.create_task(self._send_heartbeat())
 
-    def deregister_service(self):
+            logger.info(
+                f"Service registered at {self.service_ip}:{nacos_settings.service_port}"
+            )
+
+            self._client.add_config_watcher(
+                data_id=nacos_settings.data_id,
+                group=nacos_settings.group,
+                callback=self._handle_config_update,
+            )
+
+        except Exception as e:
+            logger.error(f"Nacos registration failed: {str(e)}")
+            raise RuntimeError("Nacos registration failed") from e
+
+    async def deregister(self):
+        if not self._registred:
+            return
+
         try:
+            if self.heartbeat_task:
+                self.heartbeat_task.cancel()
+                try:
+                    await self.heartbeat_task
+                except asyncio.CancelledError:
+                    logger.debug("Heartbeat task cancelled")
+
             self._client.remove_naming_instance(
                 service_name=nacos_settings.service_name,
-                ip=nacos_settings.service_ip or self.get_local_ip(),
+                ip=self.service_ip,
                 port=nacos_settings.service_port,
-                cluster_name="DEFAULT"
+                cluster_name="DEFAULT",
             )
-            logger.info("Service deregistered successfully")
+
+            self._registred = False
+            logger.info("Service deregistered")
         except Exception as e:
             logger.error(f"Service deregistration failed: {str(e)}")
+            raise RuntimeError("Nacos deregistration failed") from e
 
-    def watch_config(self, callback):
-        self._client.add_config_watcher(
-            data_id=nacos_settings.data_id,
-            group=nacos_settings.group,
-            callback=callback
-        )
+    def _handel_config_update(self, new_config):
+        try:
+            config_str = json.loads(new_config)
+            self._current_config = config_str
+            logger.info(f"Config updated: {self._current_config}")
+        except Exception as e:
+            logger.error(f"Config update failed: {str(e)}")
 
-    async def start_heartbeat(self):
-        loop = asyncio.get_event_loop()
+    async def _send_heartbeat(self):
         while True:
-            await asyncio.sleep(5)
             try:
-                await loop.run_in_executor(
-                    None,
-                    self._client.send_heartbeat,
-                    nacos_settings.service_name,
-                    nacos_settings.service_ip,
-                    nacos_settings.service_port,
-                    None,
-                    nacos_settings.group
-                )
-                logger.debug("Heartbeat sent successfully")
+                if self._registred and self._client:
+                    self._client.send_heartbeat(
+                        service_name=nacos_settings.service_name,
+                        ip=self.service_ip,
+                        port=nacos_settings.service_port,
+                        group_name=nacos_settings.group,
+                    )
+                    logger.debug("Heatbeat sent")
             except Exception as e:
                 logger.error(f"Heartbeat failed: {str(e)}")
+
+            await asyncio.sleep(nacos_settings.heatbeat_interval)
 
 
 manager = NacosManager()
