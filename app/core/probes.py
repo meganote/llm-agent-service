@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from datetime import datetime, timezone
 
 """
@@ -32,14 +32,14 @@ spec:
 router = APIRouter(
     prefix="/health",
     tags=["Probes"],
-    responses={
-        503: {"description": "Service Unavailable"}
-    }
-    )
+    responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service Unavailable"}},
+)
+
 
 @router.get("/liveness")
 async def liveness():
     return {"status": "UP", "timestamp": datetime.now(timezone.utc)}
+
 
 @router.get("/readiness")
 async def readiness(request: Request):
@@ -47,15 +47,16 @@ async def readiness(request: Request):
 
     if not manager.registered:
         raise HTTPException(
-            status_code=503,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
                 "status": "DOWN",
                 "component": "nacos",
-                "error": getattr(manager, "last_error", "Not registered")
-            }
+                "error": getattr(manager, "last_error", "Not registered"),
+            },
         )
-    
+
     return {"status": "UP", "components": {"nacos": "UP"}}
+
 
 @router.get("/startup")
 async def startup(request: Request):
@@ -63,8 +64,7 @@ async def startup(request: Request):
 
     if not hasattr(manager, "current_config"):
         raise HTTPException(
-            status_code=503,
-            detail={"status": "STARTING", "connfig_loaded": False}
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={"status": "STARTING", "connfig_loaded": False}
         )
-    
+
     return {"status": "UP"}
