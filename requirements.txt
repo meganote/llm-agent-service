@@ -6,3 +6,4 @@ openai
 httpx
 pydantic
 pydantic-settings
+loguru

@@ -4,27 +4,26 @@ from contextlib import asynccontextmanager
 import os
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from fastapi.middleware.cors import CORSMiddleware
-import logging
 
 from app.services.nacos import NacosManager
 from app.config import nacos_settings
-from app.core import probes
-import sys
+from app.core import probes, logger
+from asgi_correlation_id import CorrelationIdMiddleware
+import shortuuid
 
-logger = logging.getLogger(__name__)
+nacos: bool = os.getenv("NACOS", "true").lower() == "true"
 
-nacos_enabled:bool = os.getenv("NACOS_ENABLED", "true").lower() == "true"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     manager = None
 
     try:
-        if nacos_enabled:
+        if nacos:
             manager = NacosManager()
 
             await manager.register()
@@ -56,6 +55,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(CorrelationIdMiddleware, generator=lambda: shortuuid.uuid())
+
 
 @app.get("/nacos/status")
 async def nacos_status():
@@ -65,33 +66,34 @@ async def nacos_status():
             "registerd": manager.registered,
             "config": manager.current_config,
             "ip": manager.service_ip,
-            "port": nacos_settings.service_port
+            "port": nacos_settings.service_port,
         }
-        return JSONResponse(
-            content=data,
-            status_code=200
-        )
+        return JSONResponse(content=data, status_code=200)
     else:
         data = {
             "registerd": "unkown",
             "config": "unkown",
             "ip": "unkown",
-            "port": nacos_settings.service_port
+            "port": nacos_settings.service_port,
         }
 
-        return JSONResponse(
-            content=data,
-            status_code=500
-        )
+        return JSONResponse(content=data, status_code=500)
+
 
 app.include_router(probes.router)
 
 if __name__ == "__main__":
-    log_config = uvicorn.config.LOGGING_CONFIG
-    log_config["formatters"]["access"][
-        "fmt"
-    ] = "%(asctime)s - %(levelname)s - %(message)s"
-    log_config["formatters"]["default"][
-        "fmt"
-    ] = "%(asctime)s - %(levelname)s - %(message)s"
-    uvicorn.run(app, host="0.0.0.0", port=nacos_settings.service_port)
+    # log_config = uvicorn.config.LOGGING_CONFIG
+    # log_config["formatters"]["access"][
+    #     "fmt"
+    # ] = "%(asctime)s - %(levelname)s - %(message)s"
+    # log_config["formatters"]["default"][
+    #     "fmt"
+    # ] = "%(asctime)s - %(levelname)s - %(message)s"
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=nacos_settings.service_port,
+        # log_config=None,
+        # log_level=None,
+    )

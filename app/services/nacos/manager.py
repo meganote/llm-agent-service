@@ -4,17 +4,16 @@ import logging
 import socket
 from typing import Any, Dict, Optional
 
-import nacos
+from nacos import NacosClient
 import psutil
 
 from app.config import nacos_settings
-
-logger = logging.getLogger(__name__)
+from app.core import logger
 
 
 class NacosManager:
     def __init__(self):
-        self._client = nacos.NacosClient(
+        self._client = NacosClient(
             server_addresses=nacos_settings.server,
             namespace=nacos_settings.namespace,
             username=nacos_settings.username,
@@ -32,7 +31,7 @@ class NacosManager:
     def service_ip(self) -> str:
         return nacos_settings.service_ip or self.get_local_ip()
 
-    def get_client(self) -> nacos.NacosClient:
+    def get_client(self) -> NacosClient:
         return self._client
 
     def get_config(self) -> Dict[str, Any]:
