@@ -1,6 +1,6 @@
 import asyncio
 import json
-import logging
+import yaml
 import socket
 from typing import Any, Dict, Optional
 
@@ -20,7 +20,7 @@ class NacosManager:
             password=nacos_settings.password,
         )
         self.heartbeat_task: Optional[asyncio.Task] = None
-        self._registred = False
+        self._registered = False
         self._current_config = {}
 
     @property
@@ -42,8 +42,12 @@ class NacosManager:
             config_str = self._client.get_config(
                 data_id=nacos_settings.data_id, group=nacos_settings.group
             )
-            self._current_config = json.loads(config_str)
+            self._current_config = yaml.safe_load(config_str)
             logger.info("Successfully loaded config from Nacos")
+
+        except yaml.YAMLError as e:
+            logger.error(f"YAML parsing failed: {str(e)}")
+            self._current_config = {"error": "fallback_config"}
 
         except Exception as e:
             logger.error(f"Config loading failed: {str(e)}")
@@ -67,7 +71,7 @@ class NacosManager:
             )
 
     async def register(self):
-        if self._registred:
+        if self._registered:
             return
 
         self.load_initial_config()
@@ -83,7 +87,7 @@ class NacosManager:
                     "heartbeat_interval": str(nacos_settings.heartbeat_interval),
                 },
             )
-            self._registred = True
+            self._registered = True
             self.heartbeat_task = asyncio.create_task(self._send_heartbeat())
 
             logger.info(
@@ -93,7 +97,7 @@ class NacosManager:
             self._client.add_config_watcher(
                 data_id=nacos_settings.data_id,
                 group=nacos_settings.group,
-                callback=self._handle_config_update,
+                callback=self._handel_config_update,
             )
 
         except Exception as e:
@@ -101,7 +105,7 @@ class NacosManager:
             raise RuntimeError("Nacos registration failed") from e
 
     async def deregister(self):
-        if not self._registred:
+        if not self._registered:
             return
 
         try:
@@ -119,7 +123,7 @@ class NacosManager:
                 cluster_name="DEFAULT",
             )
 
-            self._registred = False
+            self._registered = False
             logger.info("Service deregistered")
         except Exception as e:
             logger.error(f"Service deregistration failed: {str(e)}")
@@ -134,9 +138,9 @@ class NacosManager:
             logger.error(f"Config update failed: {str(e)}")
 
     async def _send_heartbeat(self):
-        while True:
+        while self._registered:
             try:
-                if self._registred and self._client:
+                if self._registered and self._client:
                     self._client.send_heartbeat(
                         service_name=nacos_settings.service_name,
                         ip=self.service_ip,
@@ -144,10 +148,13 @@ class NacosManager:
                         group_name=nacos_settings.group,
                     )
                     logger.debug("Heatbeat sent")
+            except asyncio.CancelledError:
+                logger.info("Heartbeat task exiting...")
+                break
             except Exception as e:
                 logger.error(f"Heartbeat failed: {str(e)}")
 
-            await asyncio.sleep(nacos_settings.heatbeat_interval)
+            await asyncio.sleep(nacos_settings.heartbeat_interval)
 
 
 manager = NacosManager()
