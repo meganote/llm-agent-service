@@ -4,9 +4,11 @@ python-dotenv
 nacos-sdk-python
 openai
 httpx
+httpx_sse
 pydantic
 pydantic-settings
 loguru
 shortuuid
 pyyaml
 asgi-correlation-id
+
