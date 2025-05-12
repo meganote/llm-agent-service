@@ -1,0 +1,12 @@
+app:
+  name: llm-agent-service
+  port: 8000
+
+nacos:
+  server: localhost:8848
+  data_id: llm-agent-service.yaml
+  group: DEAULT_GROUP
+  heartbeat_interval: 5
+
+foo:
+  bar: 1

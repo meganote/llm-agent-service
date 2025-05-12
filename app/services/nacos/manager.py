@@ -6,28 +6,42 @@ from typing import Any, Dict, Optional
 import psutil
 import yaml
 from nacos import NacosClient
+import os
+from app.config import app_settings
 
-from app.config import nacos_settings
-from app.core.logger import logger
+# from app.config import nacos_settings
+# from app.core.logger import logger
 
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-# )
-# logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 class NacosManager:
     def __init__(self):
-        self._client = NacosClient(
-            server_addresses=nacos_settings.server,
-            namespace=nacos_settings.namespace,
-            username=nacos_settings.username,
-            password=nacos_settings.password,
-        )
+        self._client = None
+        self.server = os.getenv("NACOS_SERVER", "localhost:8848")
+        self.namespace = os.getenv("", "dev")
+        self.username=os.getenv("NACOS_USERNAME", "nacos")
+        self.password=os.getenv("NACOS_PASSWORD", "nacos")
+        self.data_id=os.getenv("NACOS_DATA_ID", "data.yaml")
+        self.group=os.getenv("NACOS_GROUP", "DEFAULT_GROUP")
+        self.heartbeat_interval=os.getenv("NACOS_HEARBEAT_INTERVAL", 5)
+
         self.heartbeat_task: Optional[asyncio.Task] = None
         self._registered = False
         self._current_config = {}
+
+    def _init_client(self):
+        if self._client is None:
+            self._client = NacosClient(
+                server_addresses=self.server,
+                namespace=self.namespace,
+                username=self.username,
+                password=self.password,
+        )
 
     @property
     def current_config(self):
@@ -35,7 +49,7 @@ class NacosManager:
 
     @property
     def service_ip(self) -> str:
-        return nacos_settings.service_ip or self.get_local_ip()
+        return self.service_ip or self.get_local_ip()
 
     def get_client(self) -> NacosClient:
         return self._client
@@ -46,7 +60,7 @@ class NacosManager:
     def load_initial_config(self) -> Dict[str, Any]:
         try:
             config_str = self._client.get_config(
-                data_id=nacos_settings.data_id, group=nacos_settings.group
+                data_id=self.data_id, group=self.group
             )
             self._current_config = yaml.safe_load(config_str)
             logger.info(
@@ -80,30 +94,32 @@ class NacosManager:
     async def register(self):
         if self._registered:
             return
+        
+        self._init_client()
 
         self.load_initial_config()
         logger.info(f"Config loaded: {self._current_config}")
 
         try:
             self._client.add_naming_instance(
-                service_name=nacos_settings.service_name,
+                service_name=app_settings.app.name,
                 ip=self.service_ip,
-                port=nacos_settings.service_port,
+                port=app_settings.app.port,
                 cluster_name="DEFAULT",
                 metadata={
-                    "heartbeat_interval": str(nacos_settings.heartbeat_interval),
+                    "heartbeat_interval": str(self.heartbeat_interval),
                 },
             )
             self._registered = True
             self.heartbeat_task = asyncio.create_task(self._send_heartbeat())
 
             logger.info(
-                f"Service registered at {self.service_ip}:{nacos_settings.service_port}"
+                f"Service registered at {self.service_ip}:{app_settings.app.port}"
             )
 
             self._client.add_config_watcher(
-                data_id=nacos_settings.data_id,
-                group=nacos_settings.group,
+                data_id=self.data_id,
+                group=self.group,
                 cb=self._handel_config_update,
             )
 
@@ -115,6 +131,7 @@ class NacosManager:
         if not self._registered:
             return
 
+        self._init_client()
         try:
             if self.heartbeat_task:
                 self.heartbeat_task.cancel()
@@ -124,9 +141,9 @@ class NacosManager:
                     logger.debug("Heartbeat task cancelled")
 
             self._client.remove_naming_instance(
-                service_name=nacos_settings.service_name,
+                service_name=app_settings.app.name,
                 ip=self.service_ip,
-                port=nacos_settings.service_port,
+                port=app_settings.app.port,
                 cluster_name="DEFAULT",
             )
 
@@ -150,10 +167,10 @@ class NacosManager:
             try:
                 if self._registered and self._client:
                     self._client.send_heartbeat(
-                        service_name=nacos_settings.service_name,
+                        service_name=app_settings.app.name,
                         ip=self.service_ip,
-                        port=nacos_settings.service_port,
-                        group_name=nacos_settings.group,
+                        port=app_settings.app.port,
+                        group_name=self.group,
                     )
                     logger.debug("Heatbeat sent")
             except asyncio.CancelledError:
@@ -162,7 +179,7 @@ class NacosManager:
             except Exception as e:
                 logger.error(f"Heartbeat failed: {str(e)}")
 
-            await asyncio.sleep(nacos_settings.heartbeat_interval)
+            await asyncio.sleep(self.heartbeat_interval)
 
 
 nacos_manager = NacosManager()
