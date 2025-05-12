@@ -7,3 +7,6 @@ httpx
 pydantic
 pydantic-settings
 loguru
+shortuuid
+pyyaml
+asgi-correlation-id

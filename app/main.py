@@ -1,35 +1,38 @@
 #! /usr/bin/python3
 # -*- coding: utf-8 -*-
-from contextlib import asynccontextmanager
+import logging
 import os
+from contextlib import asynccontextmanager
 
+import shortuuid
 import uvicorn
+from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.services.nacos import NacosManager
 from app.config import nacos_settings
-from app.core import probes, logger
-from asgi_correlation_id import CorrelationIdMiddleware
-import shortuuid
+from app.core import probes
+from app.routers import agent
+from app.services.nacos import nacos_manager
 
 nacos: bool = os.getenv("NACOS", "true").lower() == "true"
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    manager = None
-
     try:
         if nacos:
-            manager = NacosManager()
-
-            await manager.register()
-            app.state.nacos_manager = manager
+            await nacos_manager.register()
+            app.state.nacos_manager = nacos_manager
             yield
-            await manager.deregister()
+            await nacos_manager.deregister()
         else:
             app.state.nacos_manager = None
             yield
@@ -37,8 +40,8 @@ async def lifespan(app: FastAPI):
         logger.critical(f"Startup failed: {str(e)}")
         raise
     finally:
-        if manager:
-            await manager.deregister()
+        if nacos_manager:
+            await nacos_manager.deregister()
 
 
 deploy_env = os.getenv("DEPLOY_ENV", "dev")
@@ -63,7 +66,7 @@ async def nacos_status():
     if hasattr(app.state, "nacos_manager"):
         manager = app.state.nacos_manager
         data = {
-            "registerd": manager.registered,
+            "registerd": manager._registered,
             "config": manager.current_config,
             "ip": manager.service_ip,
             "port": nacos_settings.service_port,
@@ -81,6 +84,7 @@ async def nacos_status():
 
 
 app.include_router(probes.router)
+app.include_router(agent.router)
 
 if __name__ == "__main__":
     # log_config = uvicorn.config.LOGGING_CONFIG
@@ -93,7 +97,6 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=nacos_settings.service_port,
-        # log_config=None,
-        # log_level=None,
+        port=nacos_manager.service_port,
+        log_level="debug",
     )

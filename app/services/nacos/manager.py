@@ -1,14 +1,20 @@
 import asyncio
-import json
-import yaml
+import logging
 import socket
 from typing import Any, Dict, Optional
 
-from nacos import NacosClient
 import psutil
+import yaml
+from nacos import NacosClient
 
 from app.config import nacos_settings
-from app.core import logger
+from app.core.logger import logger
+
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# )
+# logger = logging.getLogger(__name__)
 
 
 class NacosManager:
@@ -43,7 +49,8 @@ class NacosManager:
                 data_id=nacos_settings.data_id, group=nacos_settings.group
             )
             self._current_config = yaml.safe_load(config_str)
-            logger.info("Successfully loaded config from Nacos")
+            logger.info(
+                f"Successfully loaded config from Nacos: {self._current_config}")
 
         except yaml.YAMLError as e:
             logger.error(f"YAML parsing failed: {str(e)}")
@@ -97,7 +104,7 @@ class NacosManager:
             self._client.add_config_watcher(
                 data_id=nacos_settings.data_id,
                 group=nacos_settings.group,
-                callback=self._handel_config_update,
+                cb=self._handel_config_update,
             )
 
         except Exception as e:
@@ -131,7 +138,8 @@ class NacosManager:
 
     def _handel_config_update(self, new_config):
         try:
-            config_str = json.loads(new_config)
+            raw_content = new_config.get("raw_content")
+            config_str = yaml.safe_load(raw_content)
             self._current_config = config_str
             logger.info(f"Config updated: {self._current_config}")
         except Exception as e:
@@ -157,4 +165,4 @@ class NacosManager:
             await asyncio.sleep(nacos_settings.heartbeat_interval)
 
 
-manager = NacosManager()
+nacos_manager = NacosManager()

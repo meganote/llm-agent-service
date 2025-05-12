@@ -1,5 +1,5 @@
-from .manager import NacosManager
+from .manager import nacos_manager
 
 __ALL__ = [
-    "NacosManager",
+    "nacos_manager",
 ]

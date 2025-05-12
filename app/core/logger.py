@@ -1,9 +1,10 @@
-import os
-from loguru import logger
-from pathlib import Path
-import sys
 import logging
+import os
+import sys
+from pathlib import Path
+
 from asgi_correlation_id.context import correlation_id
+from loguru import logger
 
 
 class Logger:
@@ -22,7 +23,7 @@ class Logger:
         self.format = "{time:YYYY-MM-DD HH:mm:ss.SSS} [{correlation_id}] | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
         self.dir.mkdir(exist_ok=True)
         self.configure()
-        self._intercept_handler()
+        # self._intercept_handler()
 
     def configure(self) -> None:
         logger.remove()
@@ -42,7 +43,7 @@ class Logger:
 
     def _add_console_handler(self) -> None:
         logger.add(
-            sink=sys.stderr,
+            sink=sys.stdout,
             format=self.format,
             level="DEBUG",
             filter=self._correlation_id_filter,
@@ -91,6 +92,6 @@ class Logger:
 
 logger = Logger(
     env=os.getenv("ENV", "dev"),
-    dir=os.getenv("LOG_DIR", "dev"),
+    dir=os.getenv("LOG_DIR", "logs"),
     retention=os.getenv("LOG_RETENTION", "30 days"),
 ).get_logger()

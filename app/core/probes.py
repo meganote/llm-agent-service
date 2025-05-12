@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Request, status
 from datetime import datetime, timezone
+
+from fastapi import APIRouter, HTTPException, Request, status
 
 """
 # deployment.yaml
@@ -32,7 +33,8 @@ spec:
 router = APIRouter(
     prefix="/health",
     tags=["Probes"],
-    responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Service Unavailable"}},
+    responses={status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "description": "Service Unavailable"}},
 )
 
 
@@ -45,7 +47,7 @@ async def liveness():
 async def readiness(request: Request):
     manager = request.app.state.nacos_manager
 
-    if not manager.registered:
+    if not manager._registered:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -64,7 +66,8 @@ async def startup(request: Request):
 
     if not hasattr(manager, "current_config"):
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={"status": "STARTING", "connfig_loaded": False}
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail={
+                "status": "STARTING", "connfig_loaded": False}
         )
 
     return {"status": "UP"}

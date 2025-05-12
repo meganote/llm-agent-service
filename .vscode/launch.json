@@ -13,7 +13,8 @@
                 "app.main:app",
                 "--reload",
             ],
-            "jinja": true
+            "envFile": "${workspaceFolder}/.env",
+            "jinja": true,
         }
     ]
 }
