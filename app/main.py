@@ -11,10 +11,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.core import probes
+from app.core import app_settings, probes
 from app.routers import agent
-from app.services.nacos import nacos_manager
-from app.config import app_settings
+from app.services import nacos_manager
 
 nacos: bool = os.getenv("NACOS", "true").lower() == "true"
 
@@ -28,8 +27,6 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.settings = app_settings
-    
-    print(f"!!!!! {app.state.settings.foo.bar} !!! {nacos}")
 
     try:
         if nacos:
@@ -65,8 +62,8 @@ app.add_middleware(
 app.add_middleware(CorrelationIdMiddleware, generator=lambda: shortuuid.uuid())
 
 
-@app.get("/nacos/status")
-async def nacos_status():
+@app.get("/config")
+async def config():
     if hasattr(app.state, "nacos_manager"):
         manager = app.state.nacos_manager
         data = {

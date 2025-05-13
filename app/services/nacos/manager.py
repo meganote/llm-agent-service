@@ -8,7 +8,7 @@ import psutil
 import yaml
 from nacos import NacosClient
 
-from app.config import app_settings
+from app.core import app_settings
 
 # from app.config import nacos_settings
 # from app.core.logger import logger
@@ -68,7 +68,6 @@ class NacosManager:
             logger.info(
                 f"Successfully loaded config from Nacos: {self._current_config}")
             app_settings.merge_config(self._current_config)
-            logger.info(f"App Config updated: {app_settings.foo.bar}")
 
         except yaml.YAMLError as e:
             logger.error(f"YAML parsing failed: {str(e)}")
@@ -166,7 +165,6 @@ class NacosManager:
             config_str = yaml.safe_load(raw_content)
             self._current_config = config_str
             app_settings.merge_config(config_str)
-            logger.info(f"App Config updated: {app_settings.foo.bar}")
         except Exception as e:
             logger.error(f"Config update failed: {str(e)}")
 
