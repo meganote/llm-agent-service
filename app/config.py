@@ -1,10 +1,9 @@
 import os
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
+import yaml
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-import yaml
-
 
 # class NacosSettings(BaseSettings):
 #     server: str = Field(default="localhost:8848", env="NACOS_SERVER")
@@ -20,15 +19,16 @@ import yaml
 
 #     model_config = SettingsConfigDict(env_prefix="NACOS_")
 
+
 class AppSettings():
-    def __init__(self, 
-                 data:Dict[str, Any] = None, 
+    def __init__(self,
+                 data: Dict[str, Any] = None,
                  local_config_path: str = "data/config.yaml"
                  ):
         self._config: Dict[str, Any] = {}
         self._local_config_path = local_config_path
         self._init_config(data)
-    
+
     def _init_config(self, data: Optional[Dict[str, Any]] = None) -> None:
         if data is None:
             self._config = self._load_local_config()
@@ -41,6 +41,9 @@ class AppSettings():
         for key, value in self._config.items():
             if isinstance(value, dict):
                 self._config[key] = AppSettings(data=value)
+            elif isinstance(value, list):
+                self._config[key] = [AppSettings(data=item) if isinstance(
+                    item, dict) else item for item in value]
 
     def _load_local_config(self) -> Dict[str, Any]:
         try:
@@ -51,15 +54,23 @@ class AppSettings():
         except yaml.YAMLError:
             return {}
 
-        
-    def _merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-        for key, value in override.items():
-            if isinstance(value, dict) and key in base:
-                base[key] = self._merge_configs(base.get(key, {}), value)
+    def merge_config(self, override: Dict[str, Any]) -> None:
+        self._config = self._deep_merge(self._config, override)
+        self._wrap_config()
+
+    def _deep_merge(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+        merged = base.copy()
+        for key, val in override.items():
+            if isinstance(val, dict):
+                existing = merged.get(key)
+                if isinstance(existing, AppSettings):
+                    merged[key] = existing._deep_merge(existing._config, val)
+                else:
+                    merged[key] = self._deep_merge(existing or {}, val)
             else:
-                base[key] = value
-        return base
-    
+                merged[key] = val
+        return merged
+
     def get(self, key: str, default: Any = None) -> Any:
         keys = key.split(".")
         value = self._config
@@ -69,14 +80,19 @@ class AppSettings():
             if value is default:
                 break
         return value if value is not None else default
-    
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self._config[key] = value
+        self._wrap_config()
+
     def __getattr__(self, name: str) -> Any:
         value = self.get(name)
         if value is None:
             raise AttributeError(f"config {name} not exsist")
         return value
-    
+
     def __getitem__(self, key: str) -> Any:
         return self.get(key)
+
 
 app_settings = AppSettings()

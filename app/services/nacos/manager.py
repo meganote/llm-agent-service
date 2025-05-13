@@ -1,12 +1,13 @@
 import asyncio
 import logging
+import os
 import socket
 from typing import Any, Dict, Optional
 
 import psutil
 import yaml
 from nacos import NacosClient
-import os
+
 from app.config import app_settings
 
 # from app.config import nacos_settings
@@ -23,15 +24,16 @@ class NacosManager:
     def __init__(self):
         self._client = None
         self.server = os.getenv("NACOS_SERVER", "localhost:8848")
-        self.namespace = os.getenv("", "dev")
-        self.username=os.getenv("NACOS_USERNAME", "nacos")
-        self.password=os.getenv("NACOS_PASSWORD", "nacos")
-        self.data_id=os.getenv("NACOS_DATA_ID", "data.yaml")
-        self.group=os.getenv("NACOS_GROUP", "DEFAULT_GROUP")
-        self.heartbeat_interval=os.getenv("NACOS_HEARBEAT_INTERVAL", 5)
+        self.namespace = os.getenv("NACOS_NAMESPACE", "dev")
+        self.username = os.getenv("NACOS_USERNAME", "nacos")
+        self.password = os.getenv("NACOS_PASSWORD", "nacos")
+        self.data_id = os.getenv("NACOS_DATA_ID", "data.yaml")
+        self.group = os.getenv("NACOS_GROUP", "DEFAULT_GROUP")
+        self.heartbeat_interval = os.getenv("NACOS_HEARBEAT_INTERVAL", 5)
 
         self.heartbeat_task: Optional[asyncio.Task] = None
         self._registered = False
+        self._service_ip = self.get_local_ip()
         self._current_config = {}
 
     def _init_client(self):
@@ -41,7 +43,7 @@ class NacosManager:
                 namespace=self.namespace,
                 username=self.username,
                 password=self.password,
-        )
+            )
 
     @property
     def current_config(self):
@@ -49,7 +51,7 @@ class NacosManager:
 
     @property
     def service_ip(self) -> str:
-        return self.service_ip or self.get_local_ip()
+        return self._service_ip or self.get_local_ip()
 
     def get_client(self) -> NacosClient:
         return self._client
@@ -65,6 +67,8 @@ class NacosManager:
             self._current_config = yaml.safe_load(config_str)
             logger.info(
                 f"Successfully loaded config from Nacos: {self._current_config}")
+            app_settings.merge_config(self._current_config)
+            logger.info(f"App Config updated: {app_settings.foo.bar}")
 
         except yaml.YAMLError as e:
             logger.error(f"YAML parsing failed: {str(e)}")
@@ -94,12 +98,15 @@ class NacosManager:
     async def register(self):
         if self._registered:
             return
-        
+
         self._init_client()
 
         self.load_initial_config()
         logger.info(f"Config loaded: {self._current_config}")
 
+        logger.info(
+            f"Registering at {self.service_ip}:{app_settings.app.port}"
+        )
         try:
             self._client.add_naming_instance(
                 service_name=app_settings.app.name,
@@ -120,7 +127,7 @@ class NacosManager:
             self._client.add_config_watcher(
                 data_id=self.data_id,
                 group=self.group,
-                cb=self._handel_config_update,
+                cb=self._on_nacos_config_changed,
             )
 
         except Exception as e:
@@ -153,12 +160,13 @@ class NacosManager:
             logger.error(f"Service deregistration failed: {str(e)}")
             raise RuntimeError("Nacos deregistration failed") from e
 
-    def _handel_config_update(self, new_config):
+    def _on_nacos_config_changed(self, new_config):
         try:
             raw_content = new_config.get("raw_content")
             config_str = yaml.safe_load(raw_content)
             self._current_config = config_str
-            logger.info(f"Config updated: {self._current_config}")
+            app_settings.merge_config(config_str)
+            logger.info(f"App Config updated: {app_settings.foo.bar}")
         except Exception as e:
             logger.error(f"Config update failed: {str(e)}")
 
