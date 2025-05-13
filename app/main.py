@@ -11,8 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.core import app_settings, probes
-from app.routers import agent
+from app.core import app_settings
+from app.routers import agent, probes
 from app.services import nacos_manager
 
 nacos: bool = os.getenv("NACOS", "true").lower() == "true"
